@@ -1,0 +1,7 @@
+# see https://rocket.rs/guide/v0.5/configuration/#overview for available options
+[default]
+address = "127.0.0.1"
+port = 7660
+limits = { bytes = 20 }
+ip_header = false
+workers = 1
