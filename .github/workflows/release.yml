@@ -1,0 +1,69 @@
+name: Release
+on:
+  workflow_dispatch:
+  push:
+    tags:
+      - 'v[0-9]+.[0-9]+.[0-9]+'
+permissions:
+  contents: write
+jobs:
+  build:
+    name: ${{ matrix.platform.os_name }} with rust ${{ matrix.toolchain }}
+    runs-on: ${{ matrix.platform.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        platform:
+          - os_name: Linux-aarch64
+            os: debian-latest
+            target: aarch64-unknown-linux-musl
+            bin_postfix: linux-arm64
+          - os_name: Linux-x86_64
+            os: debian-latest
+            target: x86_64-unknown-linux-gnu
+            bin_postfix: linux-amd64
+          - os_name: Windows-x86_64
+            os: windows-latest
+            target: x86_64-pc-windows-msvc
+            bin_postfix: amd64.exe
+          - os_name: macOS-x86_64
+            os: macOS-latest
+            target: x86_64-apple-darwin
+            bin_postfix: darwin-amd64
+          - os_name: macOS-aarch64
+            os: macOS-latest
+            target: aarch64-apple-darwin
+            bin_postfix: darwin-arm64
+        toolchain:
+          - stable
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build binary
+        uses: houseabsolute/actions-rust-cross@v0
+        with:
+          command: "build"
+          target: ${{ matrix.platform.target }}
+          toolchain: ${{ matrix.toolchain }}
+          args: "--release"
+          strip: true
+      - name: Rename builder (linux and macos)
+        run: mv target/${{ matrix.platform.target }}/release/ipwned-builder target/${{ matrix.platform.target }}/release/ipwned-builder-${{ matrix.platform.bin_postfix }}
+        if: matrix.platform.os_name != 'Windows-x86_64'
+      - name: Rename builder (windows)
+        run: mv target/${{ matrix.platform.target }}/release/ipwned-builder.exe target/${{ matrix.platform.target }}/release/ipwned-builder-${{ matrix.platform.bin_postfix }}
+        if: matrix.platform.os_name == 'Windows-x86_64'
+      - name: Rename server (linux and macos)
+        run: mv target/${{ matrix.platform.target }}/release/ipwned-server target/${{ matrix.platform.target }}/release/ipwned-server-${{ matrix.platform.bin_postfix }}
+        if: matrix.platform.os_name != 'Windows-x86_64'
+      - name: Rename server (windows)
+        run: mv target/${{ matrix.platform.target }}/release/ipwned-server.exe target/${{ matrix.platform.target }}/release/ipwned-server-${{ matrix.platform.bin_postfix }}
+        if: matrix.platform.os_name == 'Windows-x86_64'
+      - name: Generate SHA-256
+        run: shasum -a 256 target/${{ matrix.platform.target }}/release/*-${{ matrix.platform.bin_postfix }} | cut -d ' ' -f 1 > target/${{ matrix.platform.target }}/release/${{ matrix.platform.bin_postfix }}.sha256
+      - name: Release binary and SHA-256 checksum to GitHub
+        uses: softprops/action-gh-release@v1
+        with:
+          files: |
+            target/${{ matrix.platform.target }}/release/ipwned-builder-${{ matrix.platform.bin_postfix }}
+            target/${{ matrix.platform.target }}/release/ipwned-server-${{ matrix.platform.bin_postfix }}
+            target/${{ matrix.platform.target }}/release/${{ matrix.platform.bin_postfix }}.sha256
