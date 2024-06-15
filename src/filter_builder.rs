@@ -2,7 +2,7 @@ use crate::parse::parse_file;
 use bytes::Bytes;
 use log::{debug, error, info, trace, warn};
 use qfilter;
-use serde_cbor;
+use ciborium;
 use std::fs::File;
 use std::io::ErrorKind::NotFound;
 use std::path::PathBuf;
@@ -141,7 +141,7 @@ fn work_build(
                     break 'write;
                 }
             };
-            match serde_cbor::to_writer(&mut writer, filter) {
+            match ciborium::into_writer(filter, &mut writer) {
                 Err(e) => {
                     error!("failed to write new filter file: {:?}", e);
                     break 'write;
@@ -187,7 +187,7 @@ impl FilterBuilder {
             Err(ref e) if e.kind() == NotFound => qfilter::Filter::new(max_entries, max_er),
             Err(e) => panic!("unable to open filter file: {:?}", e),
             Ok(ref fh) => {
-                let filter_maybe = serde_cbor::from_reader(fh);
+                let filter_maybe = ciborium::from_reader(fh);
                 if filter_maybe.is_err() {
                     panic!("failed to read filter file: {:?}", filter_maybe.err());
                 }

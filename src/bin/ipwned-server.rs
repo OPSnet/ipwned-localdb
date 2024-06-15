@@ -39,7 +39,7 @@ fn open_filter(file_name: PathBuf) -> qfilter::Filter {
         panic!("unable to open filter file: {:?}", filter_file.err());
     }
 
-    let filter_maybe = serde_cbor::from_reader(filter_file.unwrap());
+    let filter_maybe = ciborium::from_reader(filter_file.unwrap());
     if filter_maybe.is_err() {
         panic!("failed to read filter file: {:?}", filter_maybe.err());
     }

@@ -1,6 +1,6 @@
 [package]
 name = "ipwned-localdb"
-version = "0.9.0"
+version = "0.9.1"
 edition = "2021"
 
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
@@ -17,7 +17,7 @@ faster-hex = "0.9.0"
 #qfilter = { path = "./qfilter", features = ["serde"] }
 qfilter = { version = "0.1.6", features = ["serde"] }
 serde = "1.0.203"
-serde_cbor = "0.11.2"
+ciborium = "0.2.2"
 parse_duration = "2.1.1"
 pretty-duration = "0.1.1"
 chrono = "0.4.38"
