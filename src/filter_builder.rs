@@ -91,7 +91,7 @@ fn work_build(
     filter: &mut qfilter::Filter,
 ) {
     let mut changed = false;
-    loop {
+    'mainloop:  loop {
         let mut added: u32 = 0;
         let parsed = match in_rx.blocking_recv() {
             Some(Some(x)) => x,
@@ -103,7 +103,7 @@ fn work_build(
                 Ok(false) => {}
                 Err(_) => {
                     error!("unable to add more items to filter");
-                    break;
+                    break 'mainloop;
                 }
             }
         }
