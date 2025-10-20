@@ -1,8 +1,8 @@
 use crate::parse::parse_file;
 use bytes::Bytes;
+use ciborium;
 use log::{debug, error, info, trace, warn};
 use qfilter;
-use ciborium;
 use std::fs::File;
 use std::io::ErrorKind::NotFound;
 use std::path::PathBuf;
@@ -91,7 +91,7 @@ fn work_build(
     filter: &mut qfilter::Filter,
 ) {
     let mut changed = false;
-    'mainloop:  loop {
+    'mainloop: loop {
         let mut added: u32 = 0;
         let parsed = match in_rx.blocking_recv() {
             Some(Some(x)) => x,
@@ -184,7 +184,9 @@ impl FilterBuilder {
     fn open_filter_maybe(file_name: &PathBuf, max_entries: u64, max_er: f64) -> qfilter::Filter {
         let filter_file = File::open(file_name);
         match filter_file {
-            Err(ref e) if e.kind() == NotFound => qfilter::Filter::new(max_entries, max_er),
+            Err(ref e) if e.kind() == NotFound => {
+                qfilter::Filter::new(max_entries, max_er).expect("failed to initialize new filter")
+            }
             Err(e) => panic!("unable to open filter file: {:?}", e),
             Ok(ref fh) => {
                 let filter_maybe = ciborium::from_reader(fh);

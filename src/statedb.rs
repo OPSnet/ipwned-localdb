@@ -57,7 +57,7 @@ impl StateDatabase {
         self.conn
             .call(move |conn| Ok(conn.is_readonly(MAIN_DB)?))
             .await
-            .map_or(true, |x| x)
+            .unwrap_or(true)
     }
 
     async fn create(&self) -> Result<()> {

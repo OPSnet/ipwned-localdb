@@ -25,8 +25,8 @@ filter table on my test system took about 20 minutes, network-limited at 30 MiB/
     cd ipwned-localdb
     cargo build --release
 
-Requires rust 1.65.0 or newer. You may need to install openssl and sqlite3 devel packages on your system. On debian
-this corresponds to `libssl-dev` and `libsqlite3-dev`.
+Requires rust 1.85.0 or newer. You may need to install openssl and sqlite3 devel packages and pkg-config on your system.
+On debian this corresponds to `libssl-dev` and `libsqlite3-dev`.
 
 ## run
 

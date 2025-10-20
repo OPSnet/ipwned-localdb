@@ -2,19 +2,18 @@ use bytes::{BufMut, Bytes};
 use faster_hex::hex_decode_unchecked;
 use nom::bytes::complete::{tag, take_while_m_n};
 use nom::character::complete::{digit1, line_ending};
-use nom::character::is_hex_digit;
 use nom::multi::separated_list0;
 use nom::sequence::separated_pair;
-use nom::IResult;
+use nom::{AsChar, IResult, Parser};
 use std::str::from_utf8_unchecked;
 
 fn parse_hash(s: &[u8]) -> IResult<&[u8], &[u8]> {
-    take_while_m_n(35, 35, is_hex_digit)(s)
+    take_while_m_n(35, 35, AsChar::is_hex_digit)(s)
 }
 
 fn parse_line(s: &[u8]) -> IResult<&[u8], &[u8]> {
     // discards count
-    let (rem, (hash, _)) = separated_pair(parse_hash, tag(":"), digit1)(s)?;
+    let (rem, (hash, _)) = separated_pair(parse_hash, tag(":"), digit1).parse(s)?;
     Ok((rem, hash))
 }
 
@@ -23,7 +22,7 @@ pub fn parse_file(prefix: u32, s: &[u8]) -> IResult<&[u8], Vec<Bytes>> {
     base_hash.put_u16((prefix >> 4) as u16);
     base_hash.put_u8((prefix as u8) << 4);
 
-    let (rem, hex_hashes) = separated_list0(line_ending, parse_line)(s)?;
+    let (rem, hex_hashes) = separated_list0(line_ending, parse_line).parse(s)?;
     let mut hashes: Vec<Bytes> = Vec::with_capacity(hex_hashes.len());
 
     for hex in hex_hashes {

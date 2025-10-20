@@ -2,6 +2,6 @@
 [default]
 address = "127.0.0.1"
 port = 7660
-limits = { bytes = 20 }
+limits = { bytes = 21 }
 ip_header = false
 workers = 1

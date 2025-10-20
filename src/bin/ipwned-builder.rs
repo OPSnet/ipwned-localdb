@@ -11,15 +11,15 @@ mod statedb;
 
 use crate::downloader::download_retry;
 use crate::filter_builder::{FilterBuilder, FilterResult, HashList};
-use crate::misc::{DownloadStatus, MAX_COUNT};
+use crate::misc::{DownloadError, DownloadStatus, MAX_COUNT};
 use crate::statedb::{State, StateDatabase};
 use argh::FromArgs;
 use chrono::{DateTime, FixedOffset, Local, NaiveDateTime, TimeDelta};
 use futures;
-use futures::{pin_mut, stream, StreamExt};
+use futures::{StreamExt, pin_mut, stream};
 use indicatif;
 use indicatif_log_bridge::LogWrapper;
-use log::{debug, error, info, LevelFilter};
+use log::{LevelFilter, debug, error, info, warn};
 use pretty_duration::pretty_duration;
 use reqwest::Client;
 use std::env::current_dir;
@@ -62,12 +62,12 @@ struct CliArgs {
     #[argh(option, default = "MAX_COUNT")]
     end: u32,
 
-    /// maximum number of hashes to track in filter. If this number is exceeded a new filter must be built. This will influence the size of the filter. Only relevant when creating a new filter. default: 1_000_000_000
-    #[argh(option, short = 'c', default = "1_000_000_000")]
+    /// maximum number of hashes to track in filter. If this number is exceeded a new filter must be built. This will influence the size of the filter. Only relevant when creating a new filter. default: 1_500_000_000
+    #[argh(option, short = 'c', default = "1_500_000_000")]
     max_count: u64,
 
-    /// maximum error rate (false positives) for filter. This will influence the size of the filter. Only relevant when creating a new filter. default: 0.0000001
-    #[argh(option, short = 'e', default = "0.0000001")]
+    /// maximum error rate (false positives) for filter. This will influence the size of the filter. Only relevant when creating a new filter. default: 0.000001
+    #[argh(option, short = 'e', default = "0.000001")]
     max_error_rate: f64,
 
     /// override base url for downloading hash lists. default: https://api.pwnedpasswords.com/range/
@@ -189,6 +189,10 @@ async fn main() -> ExitCode {
         loop {
             let mut update = false;
             tokio::select! {
+                _ = tokio::signal::ctrl_c() => {
+                    do_exit = true;
+                    break;
+                },
                 x = schedule_downloads.next() => {
                     if x.is_some() {
                         let result = x.unwrap();
@@ -207,10 +211,6 @@ async fn main() -> ExitCode {
                         },
                         _ => break,
                     }
-                },
-                _ = tokio::signal::ctrl_c() => {
-                    do_exit = true;
-                    break;
                 }
             }
             if update {
@@ -220,7 +220,7 @@ async fn main() -> ExitCode {
 
         if do_exit {
             // we received a ctrl+c, process all downloaded files and terminate
-            info!("received ctrl+c, waiting for workers to finish");
+            warn!("received ctrl+c, waiting for workers to finish");
             // signal our worker threads to exit
             if filter_builder.in_tx.send(None).await.is_ok() {
                 // if something went wrong we can just quit, otherwise wait for everything to finish
@@ -299,14 +299,6 @@ fn build_progress_meter(status: &Status) -> ProgressBars {
 }
 
 fn init_logger(level: LevelFilter, multibar: indicatif::MultiProgress) {
-    #[cfg(feature = "termcolor")]
-    let logger = simplelog::TermLogger::new(
-        level,
-        simplelog::Config::default(),
-        simplelog::TerminalMode::Stdout,
-        simplelog::ColorChoice::Auto,
-    );
-    #[cfg(not(feature = "termcolor"))]
     let logger = simplelog::SimpleLogger::new(level, simplelog::Config::default());
     LogWrapper::new(multibar.clone(), logger)
         .try_init()
@@ -329,15 +321,14 @@ async fn schedule_download(
         return Err(DownloadStatus::Skipped {});
     }
     let hash_prefix = format!("{:0>5X}", hash_list_id);
-    let res = download_retry(client, base_url, &hash_prefix, etag, max_retries).await;
-    if res.is_err() {
-        let err = res.err().unwrap();
-        if err.status_code.unwrap_or(0_u16) == 304_u16 {
-            return Err(DownloadStatus::NotOutdated {});
-        }
-        return Err(DownloadStatus::HTTPError(err));
-    }
-    let res = res.unwrap();
+    let res = download_retry(client, base_url, &hash_prefix, etag, max_retries)
+        .await
+        .map_err(|err: DownloadError| {
+            if err.status_code.unwrap_or(0_u16) == 304_u16 {
+                return DownloadStatus::NotOutdated {};
+            }
+            DownloadStatus::HTTPError(err)
+        })?;
     let data_len = res.data.len();
     if hash_list_chan
         .send(Some(HashList {
@@ -361,12 +352,9 @@ fn check_db_state(
 ) -> bool {
     let mut need_update = true;
     if state.is_ok() {
-        let state = state.unwrap();
-        if state.is_some() {
-            let state = state.unwrap();
-            let time = NaiveDateTime::parse_from_str(&state.last_update, "%Y-%m-%d %H:%M:%S");
-            if time.is_ok() {
-                let time = time.unwrap().and_utc().fixed_offset();
+        if let Some(state) = state.unwrap() {
+            if let Ok(time) = NaiveDateTime::parse_from_str(&state.last_update, "%Y-%m-%d %H:%M:%S") {
+                let time = time.and_utc().fixed_offset();
                 need_update = max_age > time;
             }
             if state.etag.is_some() {
