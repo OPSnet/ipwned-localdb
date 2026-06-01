@@ -47,16 +47,11 @@ fn work_parse(
     out_tx: mpsc::Sender<Option<ParseResult>>,
 ) {
     loop {
-        let list = match in_rx.blocking_recv() {
-            Some(Some(x)) => x,
-            _ => break,
-        };
-        let hashes = parse_file(list.id, &list.data);
-        if hashes.is_err() {
+        let Some(Some(list)) = in_rx.blocking_recv() else { break };
+        let Ok((remainder, hashes)) = parse_file(list.id, &list.data) else {
             warn!("failed to parse hash list for id {}", list.id);
             continue;
-        }
-        let (remainder, hashes) = hashes.unwrap();
+        };
         if remainder.len() > 2 {
             // at most there should be \r\n left
             warn!(
@@ -97,10 +92,7 @@ fn work_build(
     let mut changed = false;
     'mainloop: loop {
         let mut added: u32 = 0;
-        let parsed = match in_rx.blocking_recv() {
-            Some(Some(x)) => x,
-            _ => break,
-        };
+        let Some(Some(parsed)) = in_rx.blocking_recv() else { break };
         for hash in &parsed.hashes {
             match filter.insert(hash) {
                 Ok(true) => added += 1,
@@ -135,9 +127,7 @@ fn work_build(
     debug!("cleanly exiting builder thread");
     if changed {
         'write: {
-            let file_name_str = file_name.to_str().unwrap();
-            let mut tmp_name = String::from(file_name_str);
-            tmp_name.push_str(".new");
+            let tmp_name = file_name.with_added_extension("new");
             let mut writer = match File::create(&tmp_name) {
                 Ok(x) => x,
                 Err(e) => {
@@ -145,7 +135,7 @@ fn work_build(
                     break 'write;
                 }
             };
-            debug!("writing filter to {}", tmp_name);
+            debug!("writing filter to {}", tmp_name.display());
             match postcard::to_io(filter, &mut writer) {
                 Err(e) => {
                     error!("failed to write new filter file: {:?}", e);
@@ -153,13 +143,13 @@ fn work_build(
                 }
                 _ => (),
             }
-            debug!("renaming filter from {} to {}", tmp_name, file_name_str);
+            debug!("renaming filter from {} to {}", tmp_name.display(), file_name.display());
             match std::fs::rename(&tmp_name, &file_name) {
                 Err(e) => error!(
                     "failed to rename {} to {}: {:?}",
-                    tmp_name, file_name_str, e
+                    tmp_name.display(), file_name.display(), e
                 ),
-                _ => info!("successfully created new filter file at {}", file_name_str),
+                _ => info!("successfully created new filter file at {}", file_name.display()),
             }
         }
     }

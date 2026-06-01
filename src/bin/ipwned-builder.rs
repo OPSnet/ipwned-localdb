@@ -15,9 +15,7 @@ use crate::misc::{DownloadError, DownloadStatus, MAX_COUNT};
 use crate::statedb::{State, StateDatabase};
 use argh::FromArgs;
 use chrono::{DateTime, FixedOffset, Local, NaiveDateTime, TimeDelta};
-use futures;
-use futures::{StreamExt, pin_mut, stream};
-use indicatif;
+use futures::{StreamExt, stream};
 use indicatif_log_bridge::LogWrapper;
 use log::{LevelFilter, debug, error, warn};
 use pretty_duration::pretty_duration;
@@ -25,10 +23,10 @@ use reqwest::{Client, ClientBuilder};
 use std::env::current_dir;
 use std::fmt::Write;
 use std::path::PathBuf;
+use std::pin::pin;
 use std::process::ExitCode;
 use std::str::FromStr;
 use std::time::Duration;
-use tokio;
 use tokio::sync::mpsc::Sender;
 
 #[derive(FromArgs)]
@@ -51,7 +49,7 @@ struct CliArgs {
     max_age: String,
 
     /// number of parallel download requests. default: 50
-    #[argh(option, short = 'n', default = "10")]
+    #[argh(option, short = 'n', default = "50")]
     parallel: usize,
 
     /// update only ids starting from here. default: 0
@@ -66,8 +64,8 @@ struct CliArgs {
     #[argh(option, short = 'c', default = "2_500_000_000")]
     max_count: u64,
 
-    /// maximum error rate (false positives) for filter. This will influence the size of the filter. Only relevant when creating a new filter. default: 0.00001
-    #[argh(option, short = 'e', default = "0.00001")]
+    /// maximum error rate (false positives) for filter. This will influence the size of the filter. Only relevant when creating a new filter. default: 0.0000001
+    #[argh(option, short = 'e', default = "0.0000001")]
     max_error_rate: f64,
 
     /// override base url for downloading hash lists. default: https://api.pwnedpasswords.com/range/
@@ -171,7 +169,7 @@ async fn main() -> ExitCode {
     {
         let mut filter_builder =
             FilterBuilder::new(args.filter_path(), args.max_count, args.max_error_rate);
-        let schedule_downloads = stream::iter(args.start..=args.end)
+        let mut schedule_downloads = stream::iter(args.start..=args.end)
             .map(|i| {
                 schedule_download(
                     i,
@@ -184,7 +182,7 @@ async fn main() -> ExitCode {
                 )
             })
             .buffer_unordered(args.parallel);
-        pin_mut!(schedule_downloads);
+        pin!(&schedule_downloads);
 
         let mut do_exit = false;
         loop {

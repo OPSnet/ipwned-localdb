@@ -19,16 +19,17 @@ pub async fn download_retry(
 ) -> Result<DownloadResult, DownloadError> {
     let mut timeout: f32 = 0.5;
     let mut res = Err(DownloadError { status_code: None });
-    let mut url = base_url.to_owned();
+    let mut url = base_url.clone();
     url.push_str(prefix);
     for i in 0..max_retries {
-        res = download_remote_hashlist(client, &url, &etag).await;
-        if res.is_ok() {
-            return res;
-        }
-        let res_ref = res.clone();
-        if res_ref.err().unwrap().status_code.unwrap_or(0) == 304 {
-            return res;
+        match download_remote_hashlist(client, &url, &etag).await {
+            Ok(res) => return Ok(res),
+            Err(e) => {
+                if e.status_code.unwrap_or(0) == 304 {
+                    return Err(e);
+                }
+                res = Err(e);
+            }
         }
         if i < max_retries - 1 {
             sleep(Duration::from_secs_f32(timeout)).await;
@@ -57,7 +58,7 @@ pub async fn download_remote_hashlist(
             .map_or(None, |x| Some(x.to_str().ok()?.to_string()));
         let body = resp.bytes().await?;
         return Ok(DownloadResult {
-            data: body.clone(),
+            data: body,
             etag: etag,
         });
     }

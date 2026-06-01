@@ -25,7 +25,7 @@ As of April 1st 2026 there are about 2_050_000_000 compromised passwords in the 
     cd ipwned-localdb
     cargo build --release
 
-Requires rust 1.85.0 or newer. You may need to install openssl and sqlite3 devel packages and `pkg-config` on your system.
+Requires rust 1.91.0 or newer. You may need to install openssl and sqlite3 devel packages and `pkg-config` on your system.
 On Debian this corresponds to `libssl-dev` and `libsqlite3-dev`.
 
 ## run
@@ -73,7 +73,7 @@ see `Rocket.toml.example` for adjusting the HTTP server settings. The `Rocket.to
       -e, --max-error-rate
                         maximum error rate (false positives) for filter. This will
                         influence the size of the filter. Only relevant when
-                        creating a new filter. default: 0.00001
+                        creating a new filter. default: 0.0000001
       -b, --base-url    override base url for downloading hash lists. default:
                         https://api.pwnedpasswords.com/range/
       -r, --max-retries maximum number of retries when downloading a hash list in
