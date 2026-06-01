@@ -47,24 +47,12 @@ fn work_parse(
     out_tx: mpsc::Sender<Option<ParseResult>>,
 ) {
     loop {
-        let Some(Some(list)) = in_rx.blocking_recv() else { break };
-        let Ok((remainder, hashes)) = parse_file(list.id, &list.data) else {
-            warn!("failed to parse hash list for id {}", list.id);
-            continue;
+        let Some(Some(list)) = in_rx.blocking_recv() else {
+            break;
         };
-        if remainder.len() > 2 {
-            // at most there should be \r\n left
-            warn!(
-                "problem parsing hash list for id {}: {} unparsed characters",
-                list.id,
-                remainder.len()
-            );
-        }
-        trace!("work_parse: {:?}", &hashes);
-        let res = ParseResult {
-            id: list.id,
-            hashes: hashes,
-            etag: list.etag,
+        let res = match parse_hash_list(&list) {
+            Some(value) => value,
+            None => continue,
         };
         if out_tx.blocking_send(Some(res)).is_err() {
             error!("INTERNAL: unexpectedly terminated parser thread channel");
@@ -83,6 +71,28 @@ fn work_parse(
     in_rx.close();
 }
 
+fn parse_hash_list(list: &HashList) -> Option<ParseResult> {
+    let Ok((remainder, hashes)) = parse_file(list.id, &list.data) else {
+        warn!("failed to parse hash list for id {}", list.id);
+        return None;
+    };
+    if remainder.len() > 2 {
+        // at most there should be \r\n left
+        warn!(
+            "problem parsing hash list for id {}: {} unparsed characters",
+            list.id,
+            remainder.len()
+        );
+    }
+    trace!("work_parse: {:?}", &hashes);
+    let res = ParseResult {
+        id: list.id,
+        hashes: hashes,
+        etag: list.etag.clone(),
+    };
+    Some(res)
+}
+
 fn work_build(
     in_rx: &mut mpsc::Receiver<Option<ParseResult>>,
     out_tx: mpsc::Sender<Option<FilterResult>>,
@@ -90,28 +100,15 @@ fn work_build(
     filter: &mut Filter<Box<[u8]>, U64TruncateBuildHasher>,
 ) {
     let mut changed = false;
-    'mainloop: loop {
-        let mut added: u32 = 0;
-        let Some(Some(parsed)) = in_rx.blocking_recv() else { break };
-        for hash in &parsed.hashes {
-            match filter.insert(hash) {
-                Ok(true) => added += 1,
-                Ok(false) => {}
-                Err(_) => {
-                    error!("unable to add more items to filter");
-                    break 'mainloop;
-                }
-            }
-        }
-        let res = FilterResult {
-            id: parsed.id,
-            total: parsed.hashes.len() as u32,
-            added: added,
-            etag: parsed.etag,
+    loop {
+        let Some(Some(parsed)) = in_rx.blocking_recv() else {
+            break;
         };
-        if added > 0 {
-            changed = true;
-        }
+        let res = match process_hash_list(filter, &parsed) {
+            Some(value) => value,
+            None => break,
+        };
+        changed |= res.added > 0;
         if out_tx.blocking_send(Some(res)).is_err() {
             error!("INTERNAL: unexpectedly terminated builder thread channel");
             in_rx.close();
@@ -126,35 +123,59 @@ fn work_build(
     }
     debug!("cleanly exiting builder thread");
     if changed {
-        'write: {
-            let tmp_name = file_name.with_added_extension("new");
-            let mut writer = match File::create(&tmp_name) {
-                Ok(x) => x,
-                Err(e) => {
-                    error!("failed to open new filter file: {:?}", e);
-                    break 'write;
-                }
-            };
-            debug!("writing filter to {}", tmp_name.display());
-            match postcard::to_io(filter, &mut writer) {
-                Err(e) => {
-                    error!("failed to write new filter file: {:?}", e);
-                    break 'write;
-                }
-                _ => (),
-            }
-            debug!("renaming filter from {} to {}", tmp_name.display(), file_name.display());
-            match std::fs::rename(&tmp_name, &file_name) {
-                Err(e) => error!(
-                    "failed to rename {} to {}: {:?}",
-                    tmp_name.display(), file_name.display(), e
-                ),
-                _ => info!("successfully created new filter file at {}", file_name.display()),
-            }
-        }
+        write_filter_file(&file_name, filter);
     }
     let _ = out_tx.blocking_send(None);
     in_rx.close();
+}
+
+fn write_filter_file(file_name: &PathBuf, filter: &mut Filter<Box<[u8]>, U64TruncateBuildHasher>) {
+    let tmp_name = file_name.with_added_extension("new");
+    let mut writer = match File::create(&tmp_name) {
+        Ok(x) => x,
+        Err(e) => {
+            error!("failed to open new filter file: {:?}", e);
+            return;
+        }
+    };
+    debug!("writing filter to {}", tmp_name.display());
+    if let Err(e) = postcard::to_io(filter, &mut writer) {
+        error!("failed to write new filter file: {:?}", e);
+        return;
+    }
+    debug!("renaming filter from {} to {}", tmp_name.display(), file_name.display());
+    if let Err(e) = std::fs::rename(&tmp_name, &file_name) {
+        error!(
+            "failed to rename {} to {}: {:?}",
+            tmp_name.display(), file_name.display(), e
+        );
+        return;
+    }
+    info!("successfully created new filter file at {}", file_name.display());
+}
+
+fn process_hash_list(
+    filter: &mut Filter<Box<[u8]>, U64TruncateBuildHasher>,
+    parsed: &ParseResult,
+) -> Option<FilterResult> {
+    let mut added = 0;
+    for hash in &parsed.hashes {
+        match filter.insert(hash) {
+            Ok(true) => added += 1,
+            Ok(false) => {}
+            Err(_) => {
+                error!("unable to add more items to filter");
+                return None;
+            }
+        }
+    }
+    let res = FilterResult {
+        id: parsed.id,
+        total: parsed.hashes.len() as u32,
+        added: added,
+        etag: parsed.etag.clone(),
+    };
+    Some(res)
 }
 
 impl FilterBuilder {
@@ -171,10 +192,7 @@ impl FilterBuilder {
             .name(String::from("FilterBuilder"))
             .spawn(move || work_build(&mut rx_mid, out_tx, file_name, &mut filter))
             .unwrap();
-        FilterBuilder {
-            in_tx: in_tx,
-            out_rx: out_rx,
-        }
+        FilterBuilder { in_tx, out_rx }
     }
 
     fn open_filter_maybe(
