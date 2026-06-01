@@ -1,10 +1,14 @@
 use argh::FromArgs;
+use hasher::U64TruncateBuildHasher;
 use memmap2::Mmap;
+use qfilter::FilterRef;
 use rocket::http::Status;
 use rocket::shield::Shield;
 use std::fs::File;
 use std::path::PathBuf;
 
+#[path = "../hasher.rs"]
+mod hasher;
 
 #[derive(FromArgs)]
 /// run an HTTP server for querying a local haveibeenpwned.com password lookup table
@@ -16,7 +20,7 @@ struct CliArgs {
 
 struct FilterHandle<'a> {
     _mmap: Mmap,
-    filter: qfilter::FilterRef<'a>,
+    filter: FilterRef<'a, U64TruncateBuildHasher>,
 }
 
 #[rocket::post("/", data = "<hash>")]
@@ -45,9 +49,10 @@ fn open_filter<'a>(file_name: PathBuf) -> FilterHandle<'a> {
         .unwrap_or_else(|e| panic!("unable to open filter file: {:?}", e));
     let mmap = unsafe { Mmap::map(&filter_file) }
         .unwrap_or_else(|e| panic!("unable to mmap filter file: {:?}", e));
-    let filter: qfilter::FilterRef<'_> = postcard::from_bytes(&mmap)
+    let filter: FilterRef<'_, U64TruncateBuildHasher> = postcard::from_bytes(&mmap)
         .unwrap_or_else(|e| panic!("failed to read filter file: {:?}", e));
-    let filter: qfilter::FilterRef<'a> = unsafe { std::mem::transmute(filter) };
+    let filter: FilterRef<'a, U64TruncateBuildHasher> =
+        unsafe { std::mem::transmute(filter) };
     FilterHandle {
         _mmap: mmap,
         filter,

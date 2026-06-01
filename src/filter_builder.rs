@@ -1,5 +1,6 @@
 use crate::parse::parse_file;
 use bytes::Bytes;
+use hasher::U64TruncateBuildHasher;
 use log::{debug, error, info, trace, warn};
 use memmap2::Mmap;
 use postcard;
@@ -9,6 +10,8 @@ use std::io::ErrorKind::NotFound;
 use std::path::PathBuf;
 use std::thread;
 use tokio::sync::mpsc;
+
+mod hasher;
 
 const CHANNEL_BUFF_SIZE: usize = 50;
 
@@ -89,7 +92,7 @@ fn work_build(
     in_rx: &mut mpsc::Receiver<Option<ParseResult>>,
     out_tx: mpsc::Sender<Option<FilterResult>>,
     file_name: PathBuf,
-    filter: &mut Filter,
+    filter: &mut Filter<Box<[u8]>, U64TruncateBuildHasher>,
 ) {
     let mut changed = false;
     'mainloop: loop {
@@ -184,18 +187,24 @@ impl FilterBuilder {
         }
     }
 
-    fn open_filter_maybe(file_name: &PathBuf, max_entries: u64, max_er: f64) -> Filter {
+    fn open_filter_maybe(
+        file_name: &PathBuf,
+        max_entries: u64,
+        max_er: f64,
+    ) -> Filter<Box<[u8]>, U64TruncateBuildHasher> {
         let filter_file = File::open(file_name);
         match filter_file {
             Err(ref e) if e.kind() == NotFound => {
-                Filter::new(max_entries, max_er).expect("failed to initialize new filter")
+                Filter::new_with_hasher(max_entries, max_er, U64TruncateBuildHasher {})
+                    .expect("failed to initialize new filter")
             }
             Err(e) => panic!("unable to open filter file: {:?}", e),
             Ok(fh) => {
                 let mmap = unsafe { Mmap::map(&fh) }
                     .unwrap_or_else(|e| panic!("mmap failed: {:?}", e));
-                let filter = postcard::from_bytes::<Filter>(&mmap)
-                    .unwrap_or_else(|e| panic!("failed to load filter file: {:?}", e));
+                let filter =
+                    postcard::from_bytes::<Filter<Box<[u8]>, U64TruncateBuildHasher>>(&mmap)
+                        .unwrap_or_else(|e| panic!("failed to load filter file: {:?}", e));
                 filter
             }
         }
