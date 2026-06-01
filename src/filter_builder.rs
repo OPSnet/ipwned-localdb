@@ -1,8 +1,9 @@
 use crate::parse::parse_file;
 use bytes::Bytes;
-use ciborium;
 use log::{debug, error, info, trace, warn};
-use qfilter;
+use memmap2::Mmap;
+use postcard;
+use qfilter::Filter;
 use std::fs::File;
 use std::io::ErrorKind::NotFound;
 use std::path::PathBuf;
@@ -88,7 +89,7 @@ fn work_build(
     in_rx: &mut mpsc::Receiver<Option<ParseResult>>,
     out_tx: mpsc::Sender<Option<FilterResult>>,
     file_name: PathBuf,
-    filter: &mut qfilter::Filter,
+    filter: &mut Filter,
 ) {
     let mut changed = false;
     'mainloop: loop {
@@ -141,13 +142,15 @@ fn work_build(
                     break 'write;
                 }
             };
-            match ciborium::into_writer(filter, &mut writer) {
+            debug!("writing filter to {}", tmp_name);
+            match postcard::to_io(filter, &mut writer) {
                 Err(e) => {
                     error!("failed to write new filter file: {:?}", e);
                     break 'write;
                 }
                 _ => (),
             }
+            debug!("renaming filter from {} to {}", tmp_name, file_name_str);
             match std::fs::rename(&tmp_name, &file_name) {
                 Err(e) => error!(
                     "failed to rename {} to {}: {:?}",
@@ -181,19 +184,19 @@ impl FilterBuilder {
         }
     }
 
-    fn open_filter_maybe(file_name: &PathBuf, max_entries: u64, max_er: f64) -> qfilter::Filter {
+    fn open_filter_maybe(file_name: &PathBuf, max_entries: u64, max_er: f64) -> Filter {
         let filter_file = File::open(file_name);
         match filter_file {
             Err(ref e) if e.kind() == NotFound => {
-                qfilter::Filter::new(max_entries, max_er).expect("failed to initialize new filter")
+                Filter::new(max_entries, max_er).expect("failed to initialize new filter")
             }
             Err(e) => panic!("unable to open filter file: {:?}", e),
-            Ok(ref fh) => {
-                let filter_maybe = ciborium::from_reader(fh);
-                if filter_maybe.is_err() {
-                    panic!("failed to read filter file: {:?}", filter_maybe.err());
-                }
-                filter_maybe.unwrap()
+            Ok(fh) => {
+                let mmap = unsafe { Mmap::map(&fh) }
+                    .unwrap_or_else(|e| panic!("mmap failed: {:?}", e));
+                let filter = postcard::from_bytes::<Filter>(&mmap)
+                    .unwrap_or_else(|e| panic!("failed to load filter file: {:?}", e));
+                filter
             }
         }
     }

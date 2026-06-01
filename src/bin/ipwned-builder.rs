@@ -19,9 +19,9 @@ use futures;
 use futures::{StreamExt, pin_mut, stream};
 use indicatif;
 use indicatif_log_bridge::LogWrapper;
-use log::{LevelFilter, debug, error, info, warn};
+use log::{LevelFilter, debug, error, warn};
 use pretty_duration::pretty_duration;
-use reqwest::Client;
+use reqwest::{Client, ClientBuilder};
 use std::env::current_dir;
 use std::fmt::Write;
 use std::path::PathBuf;
@@ -38,12 +38,12 @@ struct CliArgs {
     #[argh(option, short = 'd', default = "current_dir().unwrap()")]
     base_path: PathBuf,
 
-    /// file name of the state database file. default: ipwned_state.sqlite
-    #[argh(option, short = 's', default = "String::from(\"ipwned_state.sqlite\")")]
+    /// file name of the state database file. default: ipwned_qfilter.state
+    #[argh(option, short = 's', default = "String::from(\"ipwned_qfilter.state\")")]
     state_db_name: String,
 
-    /// file name of the lookup filter file. default: ipwned_qfilter.cbor
-    #[argh(option, short = 'f', default = "String::from(\"ipwned_qfilter.cbor\")")]
+    /// file name of the lookup filter file. default: ipwned_qfilter.data
+    #[argh(option, short = 'f', default = "String::from(\"ipwned_qfilter.data\")")]
     filter_name: String,
 
     /// maximum age of a downloaded file before attempting an update. accepts a human-friendly string. default: 1 month
@@ -51,7 +51,7 @@ struct CliArgs {
     max_age: String,
 
     /// number of parallel download requests. default: 50
-    #[argh(option, short = 'n', default = "50")]
+    #[argh(option, short = 'n', default = "10")]
     parallel: usize,
 
     /// update only ids starting from here. default: 0
@@ -62,12 +62,12 @@ struct CliArgs {
     #[argh(option, default = "MAX_COUNT")]
     end: u32,
 
-    /// maximum number of hashes to track in filter. If this number is exceeded a new filter must be built. This will influence the size of the filter. Only relevant when creating a new filter. default: 1_500_000_000
-    #[argh(option, short = 'c', default = "1_500_000_000")]
+    /// maximum number of hashes to track in filter. If this number is exceeded a new filter must be built. This will influence the size of the filter. Only relevant when creating a new filter. default: 2_500_000_000
+    #[argh(option, short = 'c', default = "2_500_000_000")]
     max_count: u64,
 
-    /// maximum error rate (false positives) for filter. This will influence the size of the filter. Only relevant when creating a new filter. default: 0.000001
-    #[argh(option, short = 'e', default = "0.000001")]
+    /// maximum error rate (false positives) for filter. This will influence the size of the filter. Only relevant when creating a new filter. default: 0.00001
+    #[argh(option, short = 'e', default = "0.00001")]
     max_error_rate: f64,
 
     /// override base url for downloading hash lists. default: https://api.pwnedpasswords.com/range/
@@ -147,22 +147,23 @@ async fn main() -> ExitCode {
     init_logger(args.log_level(), bars.multi.clone());
     let state_db = StateDatabase::open(&args.state_db_path()).await;
     if state_db.is_err() {
-        error!(
-            "Failed to open sqlite database: {}",
-            state_db.err().unwrap()
-        );
+        error!("Failed to open state database: {}", state_db.err().unwrap());
         return ExitCode::from(1);
     }
     let state_db = state_db.unwrap();
     if state_db.is_readonly().await {
-        error!("Failed to open sqlite database with write permissions.");
+        error!("Failed to open state database with write permissions.");
         return ExitCode::from(1);
     }
 
     let mut exit_code: u8 = 0;
-    let client = Client::new();
+    let client = ClientBuilder::new()
+        .timeout(Duration::from_secs(60))
+        .build()
+        .unwrap_or_else(|e| panic!("Failed to initialize reqwest client: {}", e));
 
-    let parsed_duration: Duration = parse_duration::parse(&args.max_age).unwrap();
+    let parsed_duration: Duration = parse_duration::parse(&args.max_age)
+        .unwrap_or_else(|e| panic!("Failed to parse max_age argument: {:?}", e));
     let min_file_age_duration: TimeDelta = TimeDelta::from_std(parsed_duration).unwrap();
     let now = Local::now().fixed_offset();
     let max_age = now - min_file_age_duration;

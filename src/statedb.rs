@@ -1,4 +1,4 @@
-use rusqlite::MAIN_DB;
+use rusqlite::{Error, MAIN_DB};
 use std::path::PathBuf;
 use tokio_rusqlite;
 use tokio_rusqlite::{Connection, OptionalExtension, Result};
@@ -47,7 +47,7 @@ impl StateDatabase {
                     "INSERT INTO document(id, etag, last_update) VALUES(?1, ?2, CURRENT_TIMESTAMP) \
                     ON CONFLICT(id) DO UPDATE SET etag = ?2, last_update = CURRENT_TIMESTAMP",
                 )?;
-                Ok(stmt.execute((id, etag))?)
+                Ok::<usize, Error>(stmt.execute((id, etag))?)
             })
             .await
             .is_ok()
@@ -55,7 +55,7 @@ impl StateDatabase {
 
     pub async fn is_readonly(&self) -> bool {
         self.conn
-            .call(move |conn| Ok(conn.is_readonly(MAIN_DB)?))
+            .call(move |conn| Ok::<bool, Error>(conn.is_readonly(MAIN_DB)?))
             .await
             .unwrap_or(true)
     }

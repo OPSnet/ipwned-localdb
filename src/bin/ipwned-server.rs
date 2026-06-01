@@ -1,23 +1,30 @@
 use argh::FromArgs;
+use memmap2::Mmap;
 use rocket::http::Status;
 use rocket::shield::Shield;
 use std::fs::File;
 use std::path::PathBuf;
 
+
 #[derive(FromArgs)]
 /// run an HTTP server for querying a local haveibeenpwned.com password lookup table
 struct CliArgs {
-    /// file name of the lookup filter file. default: ./ipwned_qfilter.cbor
-    #[argh(option, short = 'f', default = "String::from(\"ipwned_qfilter.cbor\")")]
+    /// file name of the lookup filter file. default: ipwned_qfilter.data
+    #[argh(option, short = 'f', default = "String::from(\"ipwned_qfilter.data\")")]
     filter_path: String,
 }
 
+struct FilterHandle<'a> {
+    _mmap: Mmap,
+    filter: qfilter::FilterRef<'a>,
+}
+
 #[rocket::post("/", data = "<hash>")]
-fn check_hash(hash: &[u8], filter: &rocket::State<qfilter::Filter>) -> Status {
+fn check_hash(hash: &[u8], filter_handle: &rocket::State<FilterHandle>) -> Status {
     let mut status = 204;
     if hash.len() != 20 {
         status = 400;
-    } else if filter.contains(hash) {
+    } else if filter_handle.filter.contains(hash) {
         status = 205;
     }
     Status { code: status }
@@ -33,15 +40,16 @@ fn rocket_launch() -> _ {
         .mount("/", rocket::routes![check_hash])
 }
 
-fn open_filter(file_name: PathBuf) -> qfilter::Filter {
-    let filter_file = File::open(file_name);
-    if filter_file.is_err() {
-        panic!("unable to open filter file: {:?}", filter_file.err());
+fn open_filter<'a>(file_name: PathBuf) -> FilterHandle<'a> {
+    let filter_file = File::open(file_name)
+        .unwrap_or_else(|e| panic!("unable to open filter file: {:?}", e));
+    let mmap = unsafe { Mmap::map(&filter_file) }
+        .unwrap_or_else(|e| panic!("unable to mmap filter file: {:?}", e));
+    let filter: qfilter::FilterRef<'_> = postcard::from_bytes(&mmap)
+        .unwrap_or_else(|e| panic!("failed to read filter file: {:?}", e));
+    let filter: qfilter::FilterRef<'a> = unsafe { std::mem::transmute(filter) };
+    FilterHandle {
+        _mmap: mmap,
+        filter,
     }
-
-    let filter_maybe = ciborium::from_reader(filter_file.unwrap());
-    if filter_maybe.is_err() {
-        panic!("failed to read filter file: {:?}", filter_maybe.err());
-    }
-    filter_maybe.unwrap()
 }

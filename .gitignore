@@ -1,6 +1,8 @@
 /target
 .idea
 Rocket.toml
+ipwned_qfilter.data
+ipwned_qfilter.state
 
 ### MonoDevelop template
 #User Specific
@@ -1006,5 +1008,3 @@ abstract.record*
 
 ### GPG template
 secring.*
-
-
