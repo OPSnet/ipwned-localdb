@@ -60,13 +60,9 @@ struct CliArgs {
     #[argh(option, default = "MAX_COUNT")]
     end: u32,
 
-    /// maximum number of hashes to track in filter. If this number is exceeded a new filter must be built. This will influence the size of the filter. Only relevant when creating a new filter. default: 2_500_000_000
-    #[argh(option, short = 'c', default = "2_500_000_000")]
+    /// maximum number of hashes to track in filter. If this number is exceeded a new filter must be built. This will influence the size of the filter and the lowest possible error rate. Only relevant when creating a new filter. default: 3_000_000_000
+    #[argh(option, short = 'c', default = "3_000_000_000")]
     max_count: u64,
-
-    /// maximum error rate (false positives) for filter. This will influence the size of the filter. Only relevant when creating a new filter. default: 0.0000001
-    #[argh(option, short = 'e', default = "0.0000001")]
-    max_error_rate: f64,
 
     /// override base url for downloading hash lists. default: https://api.pwnedpasswords.com/range/
     #[argh(
@@ -168,7 +164,7 @@ async fn main() -> ExitCode {
 
     {
         let mut filter_builder =
-            FilterBuilder::new(args.filter_path(), args.max_count, args.max_error_rate);
+            FilterBuilder::new(args.filter_path(), args.max_count);
         let mut schedule_downloads = stream::iter(args.start..=args.end)
             .map(|i| {
                 schedule_download(

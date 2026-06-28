@@ -179,8 +179,8 @@ fn process_hash_list(
 }
 
 impl FilterBuilder {
-    pub fn new(file_name: PathBuf, max_entries: u64, max_error_rate: f64) -> FilterBuilder {
-        let mut filter = Self::open_filter_maybe(&file_name, max_entries, max_error_rate);
+    pub fn new(file_name: PathBuf, max_entries: u64) -> FilterBuilder {
+        let mut filter = Self::open_filter_maybe(&file_name, max_entries);
         let (in_tx, mut in_rx) = mpsc::channel::<Option<HashList>>(CHANNEL_BUFF_SIZE);
         let (tx_mid, mut rx_mid) = mpsc::channel::<Option<ParseResult>>(CHANNEL_BUFF_SIZE);
         let (out_tx, out_rx) = mpsc::channel::<Option<FilterResult>>(CHANNEL_BUFF_SIZE);
@@ -197,13 +197,12 @@ impl FilterBuilder {
 
     fn open_filter_maybe(
         file_name: &PathBuf,
-        max_entries: u64,
-        max_er: f64,
+        max_entries: u64
     ) -> Filter<Box<[u8]>, U64TruncateBuildHasher> {
         let filter_file = File::open(file_name);
         match filter_file {
             Err(ref e) if e.kind() == NotFound => {
-                Filter::new_with_hasher(max_entries, max_er, U64TruncateBuildHasher {})
+                Filter::with_fingerprint_size_and_hasher(max_entries.checked_div(2).unwrap(), 64, U64TruncateBuildHasher {})
                     .expect("failed to initialize new filter")
             }
             Err(e) => panic!("unable to open filter file: {:?}", e),

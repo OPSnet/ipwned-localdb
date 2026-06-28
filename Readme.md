@@ -13,9 +13,8 @@ A program to download and efficiently store the hashed password lists offered by
 
 ## Notes
 
-With default settings the filter file will be a bit larger than 10 GiB. Changing the acceptable error rate can
-significantly influence the size. For creation/updating this file needs to be loaded into RAM. If your machine needs to
-swap, that will significantly increase filter creation time.
+With default settings the filter file will be a bit larger than 17 GiB. For creation/updating this file needs to be
+loaded into RAM. If your machine needs to swap, that will significantly increase filter creation time.
 
 As of April 1st 2026 there are about 2_050_000_000 compromised passwords in the HIBP database (75 GiB download size).
 
@@ -68,12 +67,8 @@ see `Rocket.toml.example` for adjusting the HTTP server settings. The `Rocket.to
                         (1048575)
       -c, --max-count   maximum number of hashes to track in filter. If this number
                         is exceeded a new filter must be built. This will influence
-                        the size of the filter. Only relevant when creating a new
-                        filter. default: 2_500_000_000
-      -e, --max-error-rate
-                        maximum error rate (false positives) for filter. This will
-                        influence the size of the filter. Only relevant when
-                        creating a new filter. default: 0.0000001
+                        the size of the filter and the lowest possible error rate.
+                        Only relevant when creating a new filter. default: 3_000_000_000
       -b, --base-url    override base url for downloading hash lists. default:
                         https://api.pwnedpasswords.com/range/
       -r, --max-retries maximum number of retries when downloading a hash list in

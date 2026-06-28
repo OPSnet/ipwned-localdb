@@ -5,22 +5,22 @@ edition = "2024"
 
 [dependencies]
 reqwest = { version = "0.13.4", features = ["default-tls", "gzip", "http2", "system-proxy"] }
-bytes = "1.11.1"
+bytes = "1.12.0"
 tokio = { version = "1.52.3", features = ["sync", "rt", "macros", "signal", "time"] }
 futures = "0.3.32"
 tokio-rusqlite = "0.7.0"
 rusqlite = "0.37.0"
 nom = "8.0.0"
 faster-hex = "0.10.0"
-qfilter = { version = "0.3.0", features = ["serde"] }
+qfilter = { version = "0.3.1", features = ["serde"] }
 postcard = { version = "1.1.3", features = ["use-std"] }
 parse_duration = "2.1.1"
 pretty-duration = "0.1.1"
-chrono = "0.4.44"
+chrono = "0.4.45"
 argh = "0.1.19"
 indicatif = "0.18.4"
 indicatif-log-bridge = "0.2.3"
-log = "0.4.30"
+log = "0.4.33"
 simplelog = { version = "0.12.2", features = ["termcolor"] }
 rocket = "0.5.1"
-memmap2 = "0.9.10"
+memmap2 = "0.9.11"
